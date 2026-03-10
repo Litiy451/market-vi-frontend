@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { productsApi } from "../api/productsApi";
 import "./HomePage.css";
@@ -13,37 +13,59 @@ export default function HomePage() {
   const [activeCategory, setActiveCategory] = useState("Электроника");
 
   useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        const list = await productsApi.getAll();
-        if (!alive) return;
-        setProducts(Array.isArray(list) ? list : []);
-        setStatus({ loading: false, error: "" });
-      } catch (e) {
-        if (!alive) return;
-        setProducts([]);
-        setStatus({ loading: false, error: e.message || "Ошибка загрузки товаров" });
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
+    loadAllProducts();
   }, []);
 
-  // Сейчас категории на бэке нет (в твоей Product сущности нет category),
-  // поэтому категория — просто фильтр-заглушка для UI.
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) => {
-      const title = (p.title || "").toLowerCase();
-      const desc = (p.description || "").toLowerCase();
-      return title.includes(q) || desc.includes(q);
-    });
-  }, [products, query]);
+  async function loadAllProducts() {
+    try {
+      setStatus({ loading: true, error: "" });
+
+      const list = await productsApi.getAll();
+      setProducts(Array.isArray(list) ? list : []);
+      setStatus({ loading: false, error: "" });
+    } catch (e) {
+      setProducts([]);
+      setStatus({
+        loading: false,
+        error: e.message || "Ошибка загрузки товаров"
+      });
+    }
+  }
+
+  async function handleSearch() {
+    try {
+      setStatus({ loading: true, error: "" });
+
+      const trimmedQuery = query.trim();
+
+      if (!trimmedQuery) {
+        await loadAllProducts();
+        return;
+      }
+
+      const data = await productsApi.searchProducts({
+        q: trimmedQuery,
+        page: 0,
+        size: 50
+      });
+
+      setProducts(Array.isArray(data.content) ? data.content : []);
+      setStatus({ loading: false, error: "" });
+    } catch (e) {
+      setProducts([]);
+      setStatus({
+        loading: false,
+        error: e.message || "Ошибка поиска товаров"
+      });
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSearch();
+    }
+  }
 
   return (
     <div className="mv-page">
@@ -71,8 +93,13 @@ export default function HomePage() {
                 placeholder="Поиск товаров..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
               />
-              <button className="mv-btn mv-btnPrimary" onClick={() => { /* фильтр уже активен */ }}>
+              <button
+                className="mv-btn mv-btnPrimary"
+                onClick={handleSearch}
+                type="button"
+              >
                 Найти
               </button>
             </div>
@@ -109,7 +136,11 @@ export default function HomePage() {
         <section className="mv-section">
           <div className="mv-sectionHead">
             <h2 className="mv-h2">Популярное</h2>
-            <button className="mv-linkBtn" type="button">
+            <button
+              className="mv-linkBtn"
+              type="button"
+              onClick={loadAllProducts}
+            >
               Все товары →
             </button>
           </div>
@@ -120,12 +151,12 @@ export default function HomePage() {
           {!status.loading && !status.error && (
             <>
               <div className="mv-grid">
-                {filtered.map((p) => (
+                {products.map((p) => (
                   <ProductCard key={p.id} p={p} />
                 ))}
               </div>
 
-              {!filtered.length && (
+              {!products.length && (
                 <div className="mv-info">Ничего не найдено.</div>
               )}
             </>
@@ -176,7 +207,6 @@ function ProductCard({ p }) {
 
 function formatPrice(value) {
   if (value === null || value === undefined) return "";
-  // price может приходить числом или строкой
   const num = Number(value);
   if (Number.isNaN(num)) return String(value);
   return new Intl.NumberFormat("ru-RU").format(num);
